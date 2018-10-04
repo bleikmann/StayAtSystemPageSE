@@ -12,11 +12,11 @@ void * g_moduleHandle = nullptr;
 IDebugLog				gLog;
 PluginHandle			g_pluginHandle = kPluginHandle_Invalid;
 
-RelocPtr<uintptr_t> RememberCurrentTabIdxAddr(0x008F48E0);
-RelocPtr<uintptr_t> GetCurrentTabIndexAddr(0x008F3ED3);
+RelocPtr<uintptr_t> RememberCurrentTabIdxAddr(0x008F48E0);  // 1_5_53
+RelocPtr<uintptr_t> GetCurrentTabIndexAddr(0x008F3ED3);  // 1_5_53
 
 
-RelocPtr<uintptr_t> SavedTabIndexAddr(0x02F761C0);
+RelocPtr<uintptr_t> SavedTabIndexAddr(0x02F761C0);  // 1_5_53
 static UInt32 &SavedTabIndex = *(UInt32*)SavedTabIndexAddr.GetUIntPtr();
 
 static UInt32 GetSavedTabIndex(UInt8 rcx, UInt8 rdx)
@@ -65,7 +65,7 @@ extern "C"
 			return false;
 		}
 
-		if (skse->runtimeVersion != RUNTIME_VERSION_1_5_50)
+		if (skse->runtimeVersion != RUNTIME_VERSION_1_5_53)
 		{
 			_MESSAGE("This plugin is not compatible with this versin of game.");
 			return false;
