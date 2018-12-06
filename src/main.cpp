@@ -6,6 +6,7 @@
 #include "skse64/GameMenus.h"
 #include <shlobj.h>
 #include "xbyak/xbyak.h"
+#include "version.h"
 
 void * g_moduleHandle = nullptr;
 
@@ -53,8 +54,10 @@ extern "C"
 
 		gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Skyrim Special Edition\\SKSE\\StayAtSystemPage.log");
 
+		_MESSAGE("StayAtSystemPage v%s", SYSTEMPAGE_VERSION_VERSTRING);
+
 		info->infoVersion = PluginInfo::kInfoVersion;
-		info->name = "StayAtSystemPage plugin";
+		info->name = "StayAtSystemPage";
 		info->version = 1;
 
 		g_pluginHandle = skse->GetPluginHandle();
@@ -65,7 +68,7 @@ extern "C"
 			return false;
 		}
 
-		if (skse->runtimeVersion != RUNTIME_VERSION_1_5_53)
+		if (skse->runtimeVersion != RUNTIME_VERSION_1_5_62)
 		{
 			_MESSAGE("This plugin is not compatible with this versin of game.");
 			return false;
