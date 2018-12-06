@@ -12,11 +12,11 @@ void * g_moduleHandle = nullptr;
 IDebugLog				gLog;
 PluginHandle			g_pluginHandle = kPluginHandle_Invalid;
 
-RelocPtr<uintptr_t> RememberCurrentTabIdxAddr(0x008F48E0);  // 1_5_53
-RelocPtr<uintptr_t> GetCurrentTabIndexAddr(0x008F3ED3);  // 1_5_53
+RelocPtr<uintptr_t> RememberCurrentTabIdxAddr(0x008F48E0);  // 1_5_62
+RelocPtr<uintptr_t> GetCurrentTabIndexAddr(0x008F3ED3);  // 1_5_62
 
 
-RelocPtr<uintptr_t> SavedTabIndexAddr(0x02F761C0);  // 1_5_53
+RelocPtr<uintptr_t> SavedTabIndexAddr(0x02F761C0);  // 1_5_62
 static UInt32 &SavedTabIndex = *(UInt32*)SavedTabIndexAddr.GetUIntPtr();
 
 static UInt32 GetSavedTabIndex(UInt8 rcx, UInt8 rdx)
