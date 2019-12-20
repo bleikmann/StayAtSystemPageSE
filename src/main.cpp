@@ -1,128 +1,96 @@
-#include "skse64/PluginAPI.h"
-#include "skse64_common/skse_version.h"
-#include "skse64_common/Relocation.h"
-#include "skse64_common/SafeWrite.h"
 #include "skse64_common/BranchTrampoline.h"
-#include "skse64/GameMenus.h"
-#include <shlobj.h>
-#include "xbyak/xbyak.h"
+#include "skse64_common/SafeWrite.h"
+#include "skse64_common/skse_version.h"
+
 #include "version.h"
 
-PluginHandle g_pluginHandle = kPluginHandle_Invalid;
-
-// 83 79 30 00 76 10
-RelocPtr<uintptr_t> RememberCurrentTabIdxAddr(0x008F46F0);  // 1_5_80
-// 48 8B C4 55 57 41 54 41 56 41 57 48 8D 68 A1 48 81 EC D0 00 00 00 48 C7 45 27 FE FF FF FF
-RelocPtr<uintptr_t> GetCurrentTabIndexAddr(0x008F3AD0 + 0x213);  // 1_5_80
+#include "RE/Skyrim.h"
+#include "SKSE/API.h"
 
 
-// 83 79 30 00 76 10 + 10
-RelocPtr<uintptr_t> SavedTabIndexAddr(0x02F4F1C0);  // 1_5_80
-static UInt32 &SavedTabIndex = *(UInt32*)SavedTabIndexAddr.GetUIntPtr();
-
-static UInt32 GetSavedTabIndex(UInt8 rcx, UInt8 rdx)
+namespace
 {
-	UInt32 retn = 2;
-	if (rcx != rdx) {
-		MenuManager * mm = MenuManager::GetSingleton();
-		if (mm) {
-			if (mm->IsMenuOpen(&UIStringHolder::GetSingleton()->mapMenu)) {
-				retn = 0;
-			}
-		} else {
-			retn = rcx;
-		}
-	} else {
-		retn = rcx;
+	using Accept_t = function_type_t<decltype(&RE::IMenu::Accept)>;
+	Accept_t* _Accept = 0;
+
+
+	void RememberCurrentTabIndex(const RE::FxDelegateArgs& a_params)
+	{
+		return;
 	}
 
-	return retn;
+
+	void Hook_Accept(RE::IMenu* a_journalMenu, RE::FxDelegateHandler::CallbackProcessor* a_cbReg)
+	{
+		_Accept(a_journalMenu, a_cbReg);
+		a_journalMenu->fxDelegate->callbacks.Remove("RememberCurrentTabIndex");
+		a_cbReg->Process("RememberCurrentTabIndex", RememberCurrentTabIndex);
+	}
+
+
+	void InstallHooks()
+	{
+		enum
+		{
+			kQuest,
+			kPlayerInfo,
+			kSystem
+		};
+
+		// 83 79 30 00 76 10
+		REL::Offset<UInt32*> savedTabIdx(0x02F4F1C0);	// 1_5_97
+		*savedTabIdx = kSystem;
+
+		REL::Offset<Accept_t**> vFunc(RE::Offset::JournalMenu::Vtbl + (0x8 * 0x1));
+		_Accept = *vFunc;
+		SafeWrite64(vFunc.GetAddress(), unrestricted_cast<std::uintptr_t>(&Hook_Accept));
+
+		_MESSAGE("Installed hooks");
+	}
 }
+
 
 extern "C"
 {
-	bool SKSEPlugin_Query(const SKSEInterface * skse, PluginInfo * info)
+	bool SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* a_info)
 	{
-		gLog.OpenRelative(CSIDL_MYDOCUMENTS, "\\My Games\\Skyrim Special Edition\\SKSE\\StayAtSystemPage.log");
+		SKSE::Logger::OpenRelative(FOLDERID_Documents, L"\\My Games\\Skyrim Special Edition\\SKSE\\StayAtSystemPage.log");
+		SKSE::Logger::SetPrintLevel(SKSE::Logger::Level::kDebugMessage);
+		SKSE::Logger::SetFlushLevel(SKSE::Logger::Level::kDebugMessage);
+		SKSE::Logger::UseLogStamp(true);
 
 		_MESSAGE("StayAtSystemPage v%s", SYSP_VERSION_VERSTRING);
 
-		info->infoVersion = PluginInfo::kInfoVersion;
-		info->name = "StayAtSystemPage";
-		info->version = SYSP_VERSION_MAJOR;
+		a_info->infoVersion = SKSE::PluginInfo::kVersion;
+		a_info->name = "StayAtSystemPage";
+		a_info->version = SYSP_VERSION_MAJOR;
 
-		g_pluginHandle = skse->GetPluginHandle();
-
-		if (skse->isEditor) {
-			_MESSAGE("loaded in editor, marking as incompatible");
+		if (a_skse->IsEditor()) {
+			_FATALERROR("Loaded in editor, marking as incompatible!\n");
 			return false;
 		}
 
-		switch (skse->runtimeVersion) {
-		case RUNTIME_VERSION_1_5_73:
-		case RUNTIME_VERSION_1_5_80:
+		switch (a_skse->RuntimeVersion()) {
+		case RUNTIME_VERSION_1_5_97:
 			break;
 		default:
-			_MESSAGE("This plugin is not compatible with this versin of game.");
+			_FATALERROR("Unsupported runtime version %s!\n", a_skse->UnmangledRuntimeVersion().c_str());
 			return false;
 		}
 
 		return true;
 	}
 
-	bool SKSEPlugin_Load(const SKSEInterface * skse)
+
+	bool SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 	{
-		_MESSAGE("Load");
+		_MESSAGE("StayAtSystemPage loaded");
 
-		if (!g_branchTrampoline.Create(1024 * 64)) {
-			_ERROR("couldn't create branch trampoline. this is fatal. skipping remainder of init process.");
+		if (!SKSE::Init(a_skse)) {
 			return false;
 		}
 
-		if (!g_localTrampoline.Create(1024 * 64)) {
-			_ERROR("couldn't create codegen buffer. this is fatal. skipping remainder of init process.");
-			return false;
-		}
-
-		// 0 = quest, 1 = player info, 2 = system
-		SavedTabIndex = 2;
-
-		// disable the remembercurrenttabindex callback
-		SafeWrite32(RememberCurrentTabIdxAddr.GetUIntPtr(), 0x909090C3);
-
-		// fix for map menu
-		struct InstallGetSavedTabIndex_Code : Xbyak::CodeGenerator
-		{
-			InstallGetSavedTabIndex_Code(void * buf, uintptr_t funcAddr) : Xbyak::CodeGenerator(4096, buf)
-			{
-				Xbyak::Label retnLabel;
-				Xbyak::Label funcLabel;
-
-				sub(rsp, 0x20);
-
-				mov(dl, byte[rax + 0x20]);
-				mov(cl, cl);
-				call(ptr[rip + funcLabel]);
-
-				add(rsp, 0x20);
-
-				jmp(ptr[rip + retnLabel]);
-
-				L(funcLabel);
-				dq(funcAddr);
-
-				L(retnLabel);
-				dq(GetCurrentTabIndexAddr.GetUIntPtr() + 0x5);
-			}
-		};
-
-		void * codeBuf = g_localTrampoline.StartAlloc();
-		InstallGetSavedTabIndex_Code code(codeBuf, GetFnAddr(&GetSavedTabIndex));
-		g_localTrampoline.EndAlloc(code.getCurr());
-
-		if (!g_branchTrampoline.Write5Branch(GetCurrentTabIndexAddr.GetUIntPtr(), uintptr_t(code.getCode())))
-			return false;
-		SafeWrite32(GetCurrentTabIndexAddr.GetUIntPtr() + 5, 0x90909090);
+		InstallHooks();
 
 		return true;
 	}
