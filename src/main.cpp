@@ -1,4 +1,3 @@
-#include "skse64_common/BranchTrampoline.h"
 #include "skse64_common/SafeWrite.h"
 #include "skse64_common/skse_version.h"
 
@@ -10,43 +9,77 @@
 
 namespace
 {
-	using Accept_t = function_type_t<decltype(&RE::IMenu::Accept)>;
-	Accept_t* _Accept = 0;
-
-
-	void RememberCurrentTabIndex(const RE::FxDelegateArgs& a_params)
+	class JournalMenuEx : public RE::JournalMenu
 	{
-		return;
-	}
-
-
-	void Hook_Accept(RE::IMenu* a_journalMenu, RE::FxDelegateHandler::CallbackProcessor* a_cbReg)
-	{
-		_Accept(a_journalMenu, a_cbReg);
-		a_journalMenu->fxDelegate->callbacks.Remove("RememberCurrentTabIndex");
-		a_cbReg->Process("RememberCurrentTabIndex", RememberCurrentTabIndex);
-	}
-
-
-	void InstallHooks()
-	{
-		enum
+	public:
+		enum class Tab : UInt32
 		{
 			kQuest,
 			kPlayerInfo,
 			kSystem
 		};
 
-		// 83 79 30 00 76 10
-		REL::Offset<UInt32*> savedTabIdx(0x02F4F1C0);	// 1_5_97
-		*savedTabIdx = kSystem;
 
-		REL::Offset<Accept_t**> vFunc(RE::Offset::JournalMenu::Vtbl + (0x8 * 0x1));
-		_Accept = *vFunc;
-		SafeWrite64(vFunc.GetAddress(), unrestricted_cast<std::uintptr_t>(&Hook_Accept));
+		void Hook_Accept(RE::FxDelegateHandler::CallbackProcessor* a_cbReg)	// 01
+		{
+			_Accept(this, a_cbReg);
+			fxDelegate->callbacks.Remove("RememberCurrentTabIndex");
+			a_cbReg->Process("RememberCurrentTabIndex", RememberCurrentTabIndex);
+		}
 
-		_MESSAGE("Installed hooks");
-	}
+
+		RE::IMenu::Result Hook_ProcessMessage(RE::UIMessage* a_message)	// 04
+		{
+			using Message = RE::UIMessage::Message;
+			if (a_message && a_message->message == Message::kOpen) {
+				auto mm = RE::MenuManager::GetSingleton();
+				auto uiStr = RE::InterfaceStrings::GetSingleton();
+				if (mm->IsMenuOpen(uiStr->mapMenu)) {
+					*_savedTabIdx = Tab::kQuest;
+				} else {
+					*_savedTabIdx = Tab::kSystem;
+				}
+			}
+
+			return _ProcessMessage(this, a_message);
+		}
+
+
+		static void RememberCurrentTabIndex(const RE::FxDelegateArgs& a_params)
+		{
+			return;
+		}
+
+
+		static void InstallHooks()
+		{
+			{
+				REL::Offset<Accept_t**> vFunc(RE::Offset::JournalMenu::Vtbl + (0x8 * 0x1));
+				_Accept = *vFunc;
+				SafeWrite64(vFunc.GetAddress(), unrestricted_cast<std::uintptr_t>(&JournalMenuEx::Hook_Accept));
+			}
+
+			{
+				REL::Offset<ProcessMessage_t**> vFunc(RE::Offset::JournalMenu::Vtbl + (0x8 * 0x4));
+				_ProcessMessage = *vFunc;
+				SafeWrite64(vFunc.GetAddress(), unrestricted_cast<std::uintptr_t>(&JournalMenuEx::Hook_ProcessMessage));
+			}
+
+			_MESSAGE("Installed hooks");
+		}
+
+
+		using Accept_t = function_type_t<decltype(&RE::JournalMenu::Accept)>;
+		using ProcessMessage_t = function_type_t<decltype(&RE::JournalMenu::ProcessMessage)>;
+
+		static inline Accept_t* _Accept = 0;
+		static inline ProcessMessage_t* _ProcessMessage = 0;
+		static REL::Offset<Tab*> _savedTabIdx;
+	};
+
+
+	// 83 79 30 00 76 10
+	decltype(JournalMenuEx::_savedTabIdx) JournalMenuEx::_savedTabIdx(0x02F4F1C0);	// 1_5_97
 }
 
 
@@ -90,7 +123,7 @@ extern "C"
 			return false;
 		}
 
-		InstallHooks();
+		JournalMenuEx::InstallHooks();
 
 		return true;
 	}
