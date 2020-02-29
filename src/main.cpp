@@ -1,9 +1,7 @@
-#include "skse64_common/SafeWrite.h"
-#include "skse64_common/skse_version.h"
-
 #include "version.h"
 
 #include "RE/Skyrim.h"
+#include "REL/Relocation.h"
 #include "SKSE/API.h"
 
 
@@ -28,13 +26,13 @@ namespace
 		}
 
 
-		RE::IMenu::Result Hook_ProcessMessage(RE::UIMessage* a_message)	// 04
+		RE::UI_MESSAGE_RESULTS Hook_ProcessMessage(RE::UIMessage& a_message)	// 04
 		{
-			using Message = RE::UIMessage::Message;
-			if (a_message && a_message->message == Message::kOpen) {
-				auto mm = RE::MenuManager::GetSingleton();
+			using Message = RE::UI_MESSAGE_TYPE;
+			if (a_message.type == Message::kShow) {
+				auto ui = RE::UI::GetSingleton();
 				auto uiStr = RE::InterfaceStrings::GetSingleton();
-				if (mm->IsMenuOpen(uiStr->mapMenu)) {
+				if (ui->IsMenuOpen(uiStr->mapMenu)) {
 					*_savedTabIdx = Tab::kQuest;
 				} else {
 					*_savedTabIdx = Tab::kSystem;
@@ -45,7 +43,7 @@ namespace
 		}
 
 
-		static void RememberCurrentTabIndex(const RE::FxDelegateArgs& a_params)
+		static void RememberCurrentTabIndex([[maybe_unused]] const RE::FxDelegateArgs& a_params)
 		{
 			return;
 		}
@@ -53,33 +51,21 @@ namespace
 
 		static void InstallHooks()
 		{
-			{
-				REL::Offset<Accept_t**> vFunc(RE::Offset::JournalMenu::Vtbl + (0x8 * 0x1));
-				_Accept = *vFunc;
-				SafeWrite64(vFunc.GetAddress(), unrestricted_cast<std::uintptr_t>(&JournalMenuEx::Hook_Accept));
-			}
-
-			{
-				REL::Offset<ProcessMessage_t**> vFunc(RE::Offset::JournalMenu::Vtbl + (0x8 * 0x4));
-				_ProcessMessage = *vFunc;
-				SafeWrite64(vFunc.GetAddress(), unrestricted_cast<std::uintptr_t>(&JournalMenuEx::Hook_ProcessMessage));
-			}
+			REL::Offset<std::uintptr_t> vTable(RE::Offset::JournalMenu::Vtbl);
+			_Accept = vTable.WriteVFunc(0x1, &JournalMenuEx::Hook_Accept);
+			_ProcessMessage = vTable.WriteVFunc(0x4, &JournalMenuEx::Hook_ProcessMessage);
 
 			_MESSAGE("Installed hooks");
 		}
 
 
-		using Accept_t = function_type_t<decltype(&RE::JournalMenu::Accept)>;
-		using ProcessMessage_t = function_type_t<decltype(&RE::JournalMenu::ProcessMessage)>;
+		using Accept_t = decltype(&RE::JournalMenu::Accept);
+		using ProcessMessage_t = decltype(&RE::JournalMenu::ProcessMessage);
 
-		static inline Accept_t* _Accept = 0;
-		static inline ProcessMessage_t* _ProcessMessage = 0;
-		static REL::Offset<Tab*> _savedTabIdx;
+		static inline REL::Function<Accept_t> _Accept;
+		static inline REL::Function<ProcessMessage_t> _ProcessMessage;
+		static inline REL::Offset<Tab*> _savedTabIdx = REL::ID(520167);
 	};
-
-
-	// 83 79 30 00 76 10
-	decltype(JournalMenuEx::_savedTabIdx) JournalMenuEx::_savedTabIdx(0x02F4F1C0);	// 1_5_97
 }
 
 
@@ -99,15 +85,13 @@ extern "C"
 		a_info->version = SYSP_VERSION_MAJOR;
 
 		if (a_skse->IsEditor()) {
-			_FATALERROR("Loaded in editor, marking as incompatible!\n");
+			_FATALERROR("Loaded in editor, marking as incompatible!");
 			return false;
 		}
 
-		switch (a_skse->RuntimeVersion()) {
-		case RUNTIME_VERSION_1_5_97:
-			break;
-		default:
-			_FATALERROR("Unsupported runtime version %s!\n", a_skse->UnmangledRuntimeVersion().c_str());
+		auto ver = a_skse->RuntimeVersion();
+		if (ver <= SKSE::RUNTIME_1_5_39) {
+			_FATALERROR("Unsupported runtime version %s!", ver.GetString().c_str());
 			return false;
 		}
 
