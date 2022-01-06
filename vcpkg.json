@@ -1,0 +1,12 @@
+{
+  "name": "stayatsystempagese",
+  "version-string": "1",
+  "description": "Ensures the journal menu always opens at the system page tab.",
+  "homepage": "https://github.com/Ryan-rsm-McKenzie/StayAtSystemPageSE",
+  "license": "MIT",
+  "dependencies": [
+    "boost-stl-interfaces",
+    "rsm-binary-io",
+    "spdlog"
+  ]
+}
